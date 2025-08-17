@@ -4,7 +4,8 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+RUN apk update \
+    && apk add --no-cache --virtual .build-deps python3 make g++ \
     && npm install \
     && apk del .build-deps
 
