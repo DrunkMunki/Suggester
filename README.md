@@ -24,7 +24,7 @@ This is a Discord bot built with Node.js and Discord.js that allows users to sub
 1. Clone the repository:
    ```
    git clone https://github.com/drunkmunki/suggester.git
-   cd discord-suggestion-bot
+   cd suggester
    ```
 
 2. Install dependencies:
