@@ -403,7 +403,7 @@ client.on('interactionCreate', async (interaction) => {
         const row = new ActionRowBuilder().addComponents(select);
 
         await interaction.reply({
-          content: 'Submit your suggestion using the menu below. Choose the type to open a form. No need to type any commands!',
+          content: 'Submit your suggestion using the menu below.\nChoose the option below to open a form. No need to type any commands!',
           components: [row]
         });
       }
