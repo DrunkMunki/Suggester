@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle, REST, Routes, StringSelectMenuBuilder } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 
 const client = new Client({
@@ -206,6 +206,11 @@ client.once('ready', async () => {
             },
           ],
         },
+        {
+          type: 1,
+          name: 'panel',
+          description: 'Post a suggestion menu panel in this channel (admin only)'
+        },
       ],
     },
   ];
@@ -226,6 +231,47 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.isModalSubmit()) {
       console.log(`Modal submit detected: customId=${interaction.customId}`);
+    }
+
+    // Handle select menu to trigger suggestion modals without typing commands
+    if (interaction.isStringSelectMenu() && interaction.customId === 'suggest_type_select') {
+      const type = interaction.values?.[0];
+      if (!type || (type !== 'game' && type !== 'community')) return;
+
+      const modal = new ModalBuilder()
+        .setCustomId(`suggest_modal_${type}`)
+        .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Suggestion`);
+
+      if (type === 'game') {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('game_name').setLabel('Game Name').setStyle(TextInputStyle.Short)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('map_name').setLabel('Map/Server Name').setStyle(TextInputStyle.Short)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('suggestion').setLabel('Suggestion').setStyle(TextInputStyle.Paragraph)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('reason').setLabel('Reason').setStyle(TextInputStyle.Paragraph)
+          )
+        );
+      } else if (type === 'community') {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('title').setLabel('Suggestion Title').setStyle(TextInputStyle.Short)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('detail').setLabel('Suggestion in Detail').setStyle(TextInputStyle.Paragraph)
+          )
+        );
+      }
+
+      await interaction.showModal(modal).catch((modalErr) => {
+        console.error('Error showing modal from select menu:', modalErr);
+      });
+      return;
     }
 
     if (!interaction.isCommand() && !interaction.isModalSubmit()) return;
@@ -331,6 +377,34 @@ client.on('interactionCreate', async (interaction) => {
 
             interaction.editReply({ content: 'Suggestion updated successfully.' });
           });
+        });
+      } else if (subcommand === 'panel') {
+        const adminRoles = process.env.ADMIN_ROLES ? process.env.ADMIN_ROLES.split(',') : [];
+        if (!interaction.member.roles.cache.some(r => adminRoles.includes(r.id))) {
+          return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
+        }
+
+        const select = new StringSelectMenuBuilder()
+          .setCustomId('suggest_type_select')
+          .setPlaceholder('Choose a suggestion type')
+          .addOptions(
+            {
+              label: 'Game Suggestion',
+              description: 'Suggest a game/map/server change',
+              value: 'game'
+            },
+            {
+              label: 'Community Suggestion',
+              description: 'Suggest a community improvement',
+              value: 'community'
+            }
+          );
+
+        const row = new ActionRowBuilder().addComponents(select);
+
+        await interaction.reply({
+          content: 'Submit your suggestion using the menu below. Choose the type to open a form. No need to type any commands!',
+          components: [row]
         });
       }
 
