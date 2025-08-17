@@ -113,6 +113,21 @@ async function updateEmbed(message, row) {
 
 let upEmoji = '👍';
 let downEmoji = '👎';
+let upIdentifier = encodeURIComponent('👍');
+let downIdentifier = encodeURIComponent('👎');
+
+function isSameEmoji(reactionEmoji, targetEmoji) {
+  if (reactionEmoji.id) {
+    return targetEmoji && typeof targetEmoji === 'object' && targetEmoji.id
+      ? reactionEmoji.id === targetEmoji.id
+      : false;
+  }
+  return typeof targetEmoji === 'string' ? reactionEmoji.name === targetEmoji : false;
+}
+
+function getEmojiResolvable(targetEmoji) {
+  return targetEmoji && typeof targetEmoji === 'object' && targetEmoji.id ? targetEmoji.id : targetEmoji;
+}
 
 client.once('ready', async () => {
   console.log('Bot is ready!');
@@ -123,9 +138,16 @@ client.once('ready', async () => {
       const guild = await client.guilds.fetch(process.env.GUILD_ID);
       const customUp = guild.emojis.cache.find(e => e.name === process.env.UPVOTE_EMOJI_NAME);
       const customDown = guild.emojis.cache.find(e => e.name === process.env.DOWNVOTE_EMOJI_NAME);
-      if (customUp) upEmoji = customUp;
-      if (customDown) downEmoji = customDown;
+      if (customUp) {
+        upEmoji = customUp;
+        upIdentifier = `${customUp.name}:${customUp.id}`;
+      }
+      if (customDown) {
+        downEmoji = customDown;
+        downIdentifier = `${customDown.name}:${customDown.id}`;
+      }
       console.log(`Using emojis: up=${upEmoji.toString()}, down=${downEmoji.toString()}`);
+      console.log(`Using identifiers: up=${upIdentifier}, down=${downIdentifier}`);
     } catch (err) {
       console.error('Error fetching custom emojis:', err);
     }
@@ -294,8 +316,10 @@ client.on('interactionCreate', async (interaction) => {
                   if (newStatus && newStatus !== 'clear') {
                     await message.reactions.removeAll();
                   } else {
-                    if (!message.reactions.cache.has(upEmoji)) await message.react(upEmoji);
-                    if (!message.reactions.cache.has(downEmoji)) await message.react(downEmoji);
+                    const upKey = getEmojiResolvable(upEmoji);
+                    const downKey = getEmojiResolvable(downEmoji);
+                    if (!message.reactions.cache.has(upKey)) await message.react(upEmoji);
+                    if (!message.reactions.cache.has(downKey)) await message.react(downEmoji);
                   }
                   await updateEmbed(message, { ...row, status: newStatus, notes: newNotes });
                 }
@@ -458,7 +482,9 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (!row) return;
 
     const emoji = reaction.emoji;
-    if (emoji.id ? (emoji.id !== upEmoji.id && emoji.id !== downEmoji.id) : (emoji.name !== upEmoji && emoji.name !== downEmoji)) return;
+    const isUp = isSameEmoji(emoji, upEmoji);
+    const isDown = isSameEmoji(emoji, downEmoji);
+    if (!isUp && !isDown) return;
 
     if (row.status && row.status !== 'clear') {
       try {
@@ -469,8 +495,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
       return;
     }
 
-    const opposite = emoji === upEmoji ? downEmoji : upEmoji;
-    const oppReaction = message.reactions.resolve(opposite);
+    const opposite = isUp ? downEmoji : upEmoji;
+    const oppReaction = message.reactions.resolve(getEmojiResolvable(opposite));
     if (oppReaction) {
       try {
         const users = await oppReaction.users.fetch();
@@ -482,8 +508,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
       }
     }
 
-    const upCount = message.reactions.resolve(upEmoji)?.count ?? 0;
-    const downCount = message.reactions.resolve(downEmoji)?.count ?? 0;
+    const upCount = message.reactions.resolve(getEmojiResolvable(upEmoji))?.count ?? 0;
+    const downCount = message.reactions.resolve(getEmojiResolvable(downEmoji))?.count ?? 0;
 
     db.run('UPDATE suggestions SET upvotes = ?, downvotes = ? WHERE id = ?', [upCount, downCount, row.id], async (updateErr) => {
       if (updateErr) {
@@ -514,12 +540,14 @@ client.on('messageReactionRemove', async (reaction, user) => {
     if (!row) return;
 
     const emoji = reaction.emoji;
-    if (emoji.id ? (emoji.id !== upEmoji.id && emoji.id !== downEmoji.id) : (emoji.name !== upEmoji && emoji.name !== downEmoji)) return;
+    const isUp = isSameEmoji(emoji, upEmoji);
+    const isDown = isSameEmoji(emoji, downEmoji);
+    if (!isUp && !isDown) return;
 
     if (row.status && row.status !== 'clear') return;
 
-    const upCount = message.reactions.resolve(upEmoji)?.count ?? 0;
-    const downCount = message.reactions.resolve(downEmoji)?.count ?? 0;
+    const upCount = message.reactions.resolve(getEmojiResolvable(upEmoji))?.count ?? 0;
+    const downCount = message.reactions.resolve(getEmojiResolvable(downEmoji))?.count ?? 0;
 
     db.run('UPDATE suggestions SET upvotes = ?, downvotes = ? WHERE id = ?', [upCount, downCount, row.id], async (updateErr) => {
       if (updateErr) {
