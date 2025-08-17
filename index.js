@@ -23,6 +23,7 @@ const db = new sqlite3.Database(process.env.DB_PATH, (err) => {
       game_name TEXT,
       map_name TEXT,
       suggestion TEXT,
+      reason TEXT,
       title TEXT,
       detail TEXT,
       status TEXT,
@@ -46,11 +47,31 @@ async function buildEmbed(row) {
   const embed = new EmbedBuilder()
     .setTitle(`Suggestion from ${username}`);
 
+  // Set color based on status
+  let color = 0x0099FF; // Blue for new/no status
+  if (row.status) {
+    switch (row.status.toLowerCase()) {
+      case 'not happening':
+        color = 0xFF0000; // Red
+        break;
+      case 'under consideration':
+        color = 0xFFA500; // Orange
+        break;
+      case 'implemented':
+        color = 0x00FF00; // Green
+        break;
+      default:
+        color = 0x0099FF; // Default to blue
+    }
+  }
+  embed.setColor(color);
+
   if (row.type === 'game') {
     embed.addFields(
       { name: 'Game Name', value: row.game_name || 'N/A', inline: true },
-      { name: 'Map Name', value: row.map_name || 'N/A', inline: true },
-      { name: 'Suggestion', value: row.suggestion || 'N/A' }
+      { name: 'Map/Server Name', value: row.map_name || 'N/A', inline: false },
+      { name: 'Suggestion', value: row.suggestion || 'N/A' },
+      { name: 'Reason', value: row.reason || 'N/A' }
     );
   } else if (row.type === 'community') {
     embed.addFields(
@@ -90,8 +111,26 @@ async function updateEmbed(message, row) {
   await message.edit({ embeds: [embed] });
 }
 
+let upEmoji = '👍';
+let downEmoji = '👎';
+
 client.once('ready', async () => {
   console.log('Bot is ready!');
+
+  // Fetch emojis if configured
+  if (process.env.GUILD_ID && process.env.UPVOTE_EMOJI_NAME && process.env.DOWNVOTE_EMOJI_NAME) {
+    try {
+      const guild = await client.guilds.fetch(process.env.GUILD_ID);
+      const customUp = guild.emojis.cache.find(e => e.name === process.env.UPVOTE_EMOJI_NAME);
+      const customDown = guild.emojis.cache.find(e => e.name === process.env.DOWNVOTE_EMOJI_NAME);
+      if (customUp) upEmoji = customUp;
+      if (customDown) downEmoji = customDown;
+      console.log(`Using emojis: up=${upEmoji.toString()}, down=${downEmoji.toString()}`);
+    } catch (err) {
+      console.error('Error fetching custom emojis:', err);
+    }
+  }
+
   const commands = [
     {
       name: 'suggest',
@@ -160,168 +199,242 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isCommand()) return;
+  try {
+    console.log(`Interaction received: type=${interaction.type}, id=${interaction.id}, commandName=${interaction.commandName || 'N/A'}, customId=${interaction.customId || 'N/A'}, user=${interaction.user.id}`);
 
-  const subcommand = interaction.options.getSubcommand();
-
-  if (subcommand === 'create') {
-    const type = interaction.options.getString('type');
-
-    const modal = new ModalBuilder()
-      .setCustomId(`suggest_modal_${type}`)
-      .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Suggestion`);
-
-    if (type === 'game') {
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('game_name').setLabel('Game Name').setStyle(TextInputStyle.Short)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('map_name').setLabel('Map Name').setStyle(TextInputStyle.Short)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('suggestion').setLabel('Suggestion').setStyle(TextInputStyle.Paragraph)
-        )
-      );
-    } else if (type === 'community') {
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('title').setLabel('Suggestion Title').setStyle(TextInputStyle.Short)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('detail').setLabel('Suggestion in Detail').setStyle(TextInputStyle.Paragraph)
-        )
-      );
+    if (interaction.isModalSubmit()) {
+      console.log(`Modal submit detected: customId=${interaction.customId}`);
     }
 
-    await interaction.showModal(modal);
-  } else if (subcommand === 'manage') {
-    const adminRoles = process.env.ADMIN_ROLES ? process.env.ADMIN_ROLES.split(',') : [];
-    if (!interaction.member.roles.cache.some(r => adminRoles.includes(r.id))) {
-      return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
-    }
+    if (!interaction.isCommand() && !interaction.isModalSubmit()) return;
 
-    const id = interaction.options.getInteger('id');
-    const status = interaction.options.getString('status');
-    const notes = interaction.options.getString('notes') ?? '';
+    if (interaction.isCommand()) {
+      const subcommand = interaction.options.getSubcommand();
 
-    db.get('SELECT * FROM suggestions WHERE id = ?', [id], async (err, row) => {
-      if (err) {
-        console.error(err);
-        return interaction.reply({ content: 'Error fetching suggestion.', ephemeral: true });
-      }
-      if (!row) {
-        return interaction.reply({ content: 'Suggestion not found.', ephemeral: true });
-      }
+      console.time('commandProcessing');
 
-      let newStatus = status;
-      let newNotes = row.notes; // preserve if clear
-      if (status === 'clear') {
-        newStatus = null;
-        newNotes = null;
-      } else {
-        const noteDate = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
-        newNotes = `Comment from ${interaction.user.username} (ID ${row.id}_1) • ${noteDate}\n${notes}`;
-      }
+      if (subcommand === 'create') {
+        console.time('buildAndShowModal');
+        const type = interaction.options.getString('type');
 
-      db.run('UPDATE suggestions SET status = ?, notes = ? WHERE id = ?', [newStatus, newNotes, row.id], async (updateErr) => {
-        if (updateErr) {
-          console.error(updateErr);
-          return interaction.reply({ content: 'Error updating suggestion.', ephemeral: true });
+        const modal = new ModalBuilder()
+          .setCustomId(`suggest_modal_${type}`)
+          .setTitle(`${type.charAt(0).toUpperCase() + type.slice(1)} Suggestion`);
+
+        if (type === 'game') {
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('game_name').setLabel('Game Name').setStyle(TextInputStyle.Short)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('map_name').setLabel('Map/Server Name').setStyle(TextInputStyle.Short)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('suggestion').setLabel('Suggestion').setStyle(TextInputStyle.Paragraph)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('reason').setLabel('Reason').setStyle(TextInputStyle.Paragraph)
+            )
+          );
+        } else if (type === 'community') {
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('title').setLabel('Suggestion Title').setStyle(TextInputStyle.Short)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('detail').setLabel('Suggestion in Detail').setStyle(TextInputStyle.Paragraph)
+            )
+          );
         }
 
-        const channel = client.channels.cache.get(process.env.CHANNEL_ID);
-        if (channel) {
-          try {
-            const message = await channel.messages.fetch(row.message_id);
-            if (message) {
-              if (newStatus && newStatus !== 'clear') {
-                await message.reactions.removeAll();
-              } else {
-                if (!message.reactions.cache.has('👍')) await message.react('👍');
-                if (!message.reactions.cache.has('👎')) await message.react('👎');
-              }
-              await updateEmbed(message, { ...row, status: newStatus, notes: newNotes });
+        await interaction.showModal(modal);
+        console.timeEnd('buildAndShowModal');
+      } else if (subcommand === 'manage') {
+        const adminRoles = process.env.ADMIN_ROLES ? process.env.ADMIN_ROLES.split(',') : [];
+        if (!interaction.member.roles.cache.some(r => adminRoles.includes(r.id))) {
+          return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
+        }
+
+        const id = interaction.options.getInteger('id');
+        const status = interaction.options.getString('status');
+        const notes = interaction.options.getString('notes') ?? '';
+
+        db.get('SELECT * FROM suggestions WHERE id = ?', [id], async (err, row) => {
+          if (err) {
+            console.error(err);
+            return interaction.reply({ content: 'Error fetching suggestion.', ephemeral: true });
+          }
+          if (!row) {
+            return interaction.reply({ content: 'Suggestion not found.', ephemeral: true });
+          }
+
+          let newStatus = status;
+          let newNotes = row.notes; // preserve if clear
+          if (status === 'clear') {
+            newStatus = null;
+            newNotes = null;
+          } else {
+            const noteDate = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
+            newNotes = `${interaction.user.username} response: • ${noteDate}\n${notes}`;
+          }
+
+          db.run('UPDATE suggestions SET status = ?, notes = ? WHERE id = ?', [newStatus, newNotes, row.id], async (updateErr) => {
+            if (updateErr) {
+              console.error(updateErr);
+              return interaction.reply({ content: 'Error updating suggestion.', ephemeral: true });
             }
-          } catch (fetchErr) {
-            console.error('Error fetching message:', fetchErr);
+
+            const channel = client.channels.cache.get(process.env.CHANNEL_ID);
+            if (channel) {
+              try {
+                const message = await channel.messages.fetch(row.message_id);
+                if (message) {
+                  if (newStatus && newStatus !== 'clear') {
+                    await message.reactions.removeAll();
+                  } else {
+                    if (!message.reactions.cache.has(upEmoji)) await message.react(upEmoji);
+                    if (!message.reactions.cache.has(downEmoji)) await message.react(downEmoji);
+                  }
+                  await updateEmbed(message, { ...row, status: newStatus, notes: newNotes });
+                }
+              } catch (fetchErr) {
+                console.error('Error fetching message:', fetchErr);
+              }
+            }
+
+            interaction.reply({ content: 'Suggestion updated successfully.', ephemeral: true });
+          });
+        });
+      }
+
+      console.timeEnd('commandProcessing');
+    }
+
+    // Handle modal submit
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('suggest_modal_')) {
+      console.log(`Processing suggest modal: customId=${interaction.customId}`);
+      console.log('Deferring reply...');
+      await interaction.deferReply({ ephemeral: true });
+      console.log('Reply deferred successfully.');
+
+      const type = interaction.customId.split('_')[2];
+      console.log(`Suggestion type: ${type}`);
+
+      let game_name = null, map_name = null, suggestion = null, title = null, detail = null, reason = null;
+
+      if (type === 'game') {
+        game_name = interaction.fields.getTextInputValue('game_name');
+        map_name = interaction.fields.getTextInputValue('map_name');
+        suggestion = interaction.fields.getTextInputValue('suggestion');
+        reason = interaction.fields.getTextInputValue('reason');
+        console.log(`Game fields: game_name=${game_name}, map_name=${map_name}, suggestion=${suggestion}, reason=${reason}`);
+      } else if (type === 'community') {
+        title = interaction.fields.getTextInputValue('title');
+        detail = interaction.fields.getTextInputValue('detail');
+        console.log(`Community fields: title=${title}, detail=${detail}`);
+      }
+
+      const submission_date = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/,/g, '');
+      console.log(`Submission date: ${submission_date}`);
+
+      console.log('Inserting into DB...');
+      db.run(
+        'INSERT INTO suggestions (user_id, type, game_name, map_name, suggestion, reason, title, detail, submission_date, upvotes, downvotes, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, null)',
+        [interaction.user.id, type, game_name, map_name, suggestion, reason, title, detail, submission_date],
+        async function (err) {
+          if (err) {
+            console.error('DB insert error:', err.stack);
+            return interaction.editReply({ content: 'Error submitting suggestion to database.' });
+          }
+          console.log('DB insert successful.');
+
+          const id = this.lastID;
+          console.log(`New suggestion ID: ${id}`);
+
+          const tempRow = {
+            id,
+            user_id: interaction.user.id,
+            type,
+            game_name,
+            map_name,
+            suggestion,
+            reason,
+            title,
+            detail,
+            status: null,
+            notes: null,
+            submission_date,
+            upvotes: 0,
+            downvotes: 0,
+            message_id: null,
+          };
+
+          let embed;
+          try {
+            console.log('Building embed...');
+            embed = await buildEmbed(tempRow);
+            console.log('Embed built successfully.');
+          } catch (embedErr) {
+            console.error('Error building embed:', embedErr.stack);
+            return interaction.editReply({ content: 'Error building suggestion embed.' });
+          }
+
+          console.log(`Fetching channel: ${process.env.CHANNEL_ID}`);
+          const channel = client.channels.cache.get(process.env.CHANNEL_ID);
+          if (!channel) {
+            console.error(`Channel not found: ${process.env.CHANNEL_ID}`);
+            return interaction.editReply({ content: 'Suggestion channel not found. Check CHANNEL_ID in .env.' });
+          }
+          console.log(`Channel fetched: ${channel.name} (${channel.id})`);
+
+          try {
+            console.log('Sending message to channel...');
+            const message = await channel.send({ embeds: [embed] });
+            console.log(`Message sent: ${message.id}`);
+
+            console.log('Adding reactions...');
+            await message.react(upEmoji);
+            await message.react(downEmoji);
+            console.log('Reactions added.');
+
+            console.log('Updating message_id in DB...');
+            db.run('UPDATE suggestions SET message_id = ? WHERE id = ?', [message.id, id], (updateErr) => {
+              if (updateErr) {
+                console.error('DB update message_id error:', updateErr.stack);
+              } else {
+                console.log('DB update successful.');
+              }
+            });
+
+            interaction.editReply({ content: 'Your suggestion has been submitted!' });
+          } catch (sendErr) {
+            console.error('Error sending message or adding reactions:', sendErr.stack);
+            interaction.editReply({ content: 'Error posting suggestion to channel. Check bot permissions and channel access.' });
           }
         }
-
-        interaction.reply({ content: 'Suggestion updated successfully.', ephemeral: true });
-      });
-    });
-  }
-
-  // Handle modal submit
-  if (interaction.isModalSubmit() && interaction.customId.startsWith('suggest_modal_')) {
-    const type = interaction.customId.split('_')[2];
-
-    let game_name = null, map_name = null, suggestion = null, title = null, detail = null;
-
-    if (type === 'game') {
-      game_name = interaction.fields.getTextInputValue('game_name');
-      map_name = interaction.fields.getTextInputValue('map_name');
-      suggestion = interaction.fields.getTextInputValue('suggestion');
-    } else if (type === 'community') {
-      title = interaction.fields.getTextInputValue('title');
-      detail = interaction.fields.getTextInputValue('detail');
+      );
     }
 
-    const submission_date = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/,/g, '');
-
-    db.run(
-      'INSERT INTO suggestions (user_id, type, game_name, map_name, suggestion, title, detail, submission_date, upvotes, downvotes, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, null)',
-      [interaction.user.id, type, game_name, map_name, suggestion, title, detail, submission_date],
-      async function (err) {
-        if (err) {
-          console.error(err);
-          return interaction.reply({ content: 'Error submitting suggestion.', ephemeral: true });
-        }
-
-        const id = this.lastID;
-        const tempRow = {
-          id,
-          user_id: interaction.user.id,
-          type,
-          game_name,
-          map_name,
-          suggestion,
-          title,
-          detail,
-          status: null,
-          notes: null,
-          submission_date,
-          upvotes: 0,
-          downvotes: 0,
-          message_id: null,
-        };
-
-        const embed = await buildEmbed(tempRow);
-
-        const channel = client.channels.cache.get(process.env.CHANNEL_ID);
-        if (!channel) {
-          return interaction.reply({ content: 'Suggestion channel not found.', ephemeral: true });
-        }
-
-        try {
-          const message = await channel.send({ embeds: [embed] });
-          await message.react('👍');
-          await message.react('👎');
-
-          db.run('UPDATE suggestions SET message_id = ? WHERE id = ?', [message.id, id]);
-
-          interaction.reply({ content: 'Your suggestion has been submitted!', ephemeral: true });
-        } catch (sendErr) {
-          console.error('Error sending message:', sendErr);
-          interaction.reply({ content: 'Error posting suggestion.', ephemeral: true });
-        }
+    // Catch-all for unhandled interactions
+    if (!interaction.replied && !interaction.deferred) {
+      try {
+        await interaction.reply({ content: 'Interaction acknowledged, but no handler found.', ephemeral: true });
+      } catch (ackErr) {
+        console.error('Error acknowledging unhandled interaction:', ackErr.stack);
       }
-    );
+    }
+  } catch (error) {
+    console.error('Error handling interaction:', error.stack);
+    if (!interaction.replied && !interaction.deferred) {
+      try {
+        await interaction.reply({ content: 'An error occurred while processing your request.', ephemeral: true });
+      } catch (replyErr) {
+        console.error('Error sending error reply:', replyErr.stack);
+      }
+    } else if (interaction.deferred) {
+      await interaction.editReply({ content: 'An error occurred while processing your request.' });
+    }
   }
-
-  // Admin command handling
-  // ...
 });
 
 client.on('messageReactionAdd', async (reaction, user) => {
@@ -342,8 +455,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
     }
     if (!row) return;
 
-    const emoji = reaction.emoji.name;
-    if (emoji !== '👍' && emoji !== '👎') return;
+    const emoji = reaction.emoji;
+    if (emoji.id ? (emoji.id !== upEmoji.id && emoji.id !== downEmoji.id) : (emoji.name !== upEmoji && emoji.name !== downEmoji)) return;
 
     if (row.status && row.status !== 'clear') {
       try {
@@ -354,7 +467,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
       return;
     }
 
-    const opposite = emoji === '👍' ? '👎' : '👍';
+    const opposite = emoji === upEmoji ? downEmoji : upEmoji;
     const oppReaction = message.reactions.resolve(opposite);
     if (oppReaction) {
       try {
@@ -367,8 +480,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
       }
     }
 
-    const upCount = message.reactions.resolve('👍')?.count ?? 0;
-    const downCount = message.reactions.resolve('👎')?.count ?? 0;
+    const upCount = message.reactions.resolve(upEmoji)?.count ?? 0;
+    const downCount = message.reactions.resolve(downEmoji)?.count ?? 0;
 
     db.run('UPDATE suggestions SET upvotes = ?, downvotes = ? WHERE id = ?', [upCount, downCount, row.id], async (updateErr) => {
       if (updateErr) {
@@ -398,13 +511,13 @@ client.on('messageReactionRemove', async (reaction, user) => {
     }
     if (!row) return;
 
-    const emoji = reaction.emoji.name;
-    if (emoji !== '👍' && emoji !== '👎') return;
+    const emoji = reaction.emoji;
+    if (emoji.id ? (emoji.id !== upEmoji.id && emoji.id !== downEmoji.id) : (emoji.name !== upEmoji && emoji.name !== downEmoji)) return;
 
     if (row.status && row.status !== 'clear') return;
 
-    const upCount = message.reactions.resolve('👍')?.count ?? 0;
-    const downCount = message.reactions.resolve('👎')?.count ?? 0;
+    const upCount = message.reactions.resolve(upEmoji)?.count ?? 0;
+    const downCount = message.reactions.resolve(downEmoji)?.count ?? 0;
 
     db.run('UPDATE suggestions SET upvotes = ?, downvotes = ? WHERE id = ?', [upCount, downCount, row.id], async (updateErr) => {
       if (updateErr) {

@@ -65,12 +65,34 @@ This is a Discord bot built with Node.js and Discord.js that allows users to sub
 
    For Portainer: Create a new container from the image and set the env vars and volumes via the UI.
 
+### Ubuntu 23.10 Installation (Temporary Setup)
+If you're facing issues with Docker/Alpine, use this script to set up on Ubuntu 23.10 for testing:
+
+1. Ensure you have Ubuntu 23.10 installed (e.g., in a VM).
+2. Clone the repository:
+   ```
+   git clone https://github.com/drunkmunki/suggester.git
+   cd suggester
+   ```
+3. Make the script executable:
+   ```
+   chmod +x setup.sh
+   ```
+4. Run the script:
+   ```
+   ./setup.sh
+   ```
+5. The script will install everything and start the bot. Stop with Ctrl+C and restart as needed.
+
 ## Configuration
 All configuration is done via environment variables in `.env` or Docker env:
 - `DISCORD_TOKEN`: Required. Your bot's token.
 - `CHANNEL_ID`: Required. The ID of the channel where suggestions are posted.
 - `ADMIN_ROLES`: Optional. Comma-separated role IDs that can use the manage command.
 - `DB_PATH`: Path to the SQLite DB file (defaults to `suggestions.db` in the working directory).
+- `GUILD_ID`: Optional. The ID of the guild (server) to fetch custom emojis from.
+- `UPVOTE_EMOJI_NAME`: Optional. Name of the custom upvote emoji (e.g., 'yes'). Requires GUILD_ID.
+- `DOWNVOTE_EMOJI_NAME`: Optional. Name of the custom downvote emoji (e.g., 'no'). Requires GUILD_ID.
 
 The bot auto-creates the SQLite table on startup.
 

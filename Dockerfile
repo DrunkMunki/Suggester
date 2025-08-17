@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN apk update \
+RUN for i in $(seq 1 5); do apk update && break || sleep 5; done \
     && apk add --no-cache --virtual .build-deps python3 make g++ \
     && npm install \
     && apk del .build-deps
