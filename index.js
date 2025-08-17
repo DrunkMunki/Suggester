@@ -330,6 +330,9 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             interaction.editReply({ content: 'Suggestion updated successfully.' });
+            setTimeout(() => {
+              interaction.deleteReply().catch(() => { });
+            }, 10000);
           });
         });
       }
@@ -441,6 +444,9 @@ client.on('interactionCreate', async (interaction) => {
             });
 
             interaction.editReply({ content: 'Your suggestion has been submitted!' });
+            setTimeout(() => {
+              interaction.deleteReply().catch(() => { });
+            }, 10000);
           } catch (sendErr) {
             console.error('Error sending message or adding reactions:', sendErr.stack);
             interaction.editReply({ content: 'Error posting suggestion to channel. Check bot permissions and channel access.' });
