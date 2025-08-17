@@ -468,6 +468,10 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             interaction.editReply({ content: 'Suggestion updated successfully.' });
+            // Auto-remove the ephemeral confirmation after a short delay
+            setTimeout(() => {
+              interaction.deleteReply().catch(() => { });
+            }, 5000);
           });
         });
       } else if (subcommand === 'panel') {
