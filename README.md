@@ -23,7 +23,7 @@ This is a Discord bot built with Node.js and Discord.js that allows users to sub
 ### Local Installation
 1. Clone the repository:
    ```
-   git clone https://github.com/drunkmunki/discord-suggestion-bot.git
+   git clone https://github.com/drunkmunki/suggester.git
    cd discord-suggestion-bot
    ```
 
