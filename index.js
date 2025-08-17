@@ -236,7 +236,6 @@ client.on('interactionCreate', async (interaction) => {
       console.time('commandProcessing');
 
       if (subcommand === 'create') {
-        console.time('buildAndShowModal');
         const type = interaction.options.getString('type');
 
         const modal = new ModalBuilder()
@@ -269,10 +268,12 @@ client.on('interactionCreate', async (interaction) => {
           );
         }
 
-        await interaction.showModal(modal);
-        console.timeEnd('buildAndShowModal');
+        interaction.showModal(modal).catch((modalErr) => {
+          console.error('Error showing modal:', modalErr);
+        });
+        return; // Avoid any further processing that could delay the ack window
       } else if (subcommand === 'manage') {
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply({ ephemeral: true });
 
         const adminRoles = process.env.ADMIN_ROLES ? process.env.ADMIN_ROLES.split(',') : [];
         if (!interaction.member.roles.cache.some(r => adminRoles.includes(r.id))) {
@@ -338,9 +339,16 @@ client.on('interactionCreate', async (interaction) => {
 
     // Handle modal submit
     if (interaction.isModalSubmit() && interaction.customId.startsWith('suggest_modal_')) {
+      // Acknowledge immediately to avoid timeouts
+      if (!interaction.deferred && !interaction.replied) {
+        try {
+          await interaction.deferReply({ ephemeral: true });
+        } catch (e) {
+          // If we can't defer, bail early; outer catch will handle logging
+          throw e;
+        }
+      }
       console.log(`Processing suggest modal: customId=${interaction.customId}`);
-      console.log('Deferring reply...');
-      await interaction.deferReply({ ephemeral: true });
       console.log('Reply deferred successfully.');
 
       const type = interaction.customId.split('_')[2];
@@ -451,14 +459,23 @@ client.on('interactionCreate', async (interaction) => {
     // }
   } catch (error) {
     console.error('Error handling interaction:', error.stack);
-    if (!interaction.replied && !interaction.deferred) {
-      try {
-        await interaction.reply({ content: 'An error occurred while processing your request.', ephemeral: true });
-      } catch (replyErr) {
-        console.error('Error sending error reply:', replyErr.stack);
+    try {
+      if (typeof interaction.isRepliable === 'function' && interaction.isRepliable()) {
+        if (interaction.deferred) {
+          await interaction.editReply({ content: 'An error occurred while processing your request.' });
+        } else if (!interaction.replied) {
+          await interaction.reply({ content: 'An error occurred while processing your request.', ephemeral: true });
+        } else {
+          await interaction.followUp({ content: 'An error occurred while processing your request.', ephemeral: true });
+        }
       }
-    } else if (interaction.deferred) {
-      await interaction.editReply({ content: 'An error occurred while processing your request.' });
+    } catch (replyErr) {
+      // Ignore expired/unknown interactions, log others
+      if (replyErr?.rawError?.code === 10062 || replyErr?.code === 10062) {
+        console.warn('Could not send error response: interaction has expired or is unknown.');
+      } else {
+        console.error('Error sending error response:', replyErr.stack || replyErr);
+      }
     }
   }
 });
