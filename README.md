@@ -2,6 +2,9 @@
 
 A Discord bot (Node.js + discord.js v14) for collecting, displaying, and managing community suggestions. Users submit ideas via modals; suggestions are posted as embeds with voting. Admins can manage statuses and notes.
 
+## Known Issues
+When Submitting a form or running a command you may get timeout errors, re-trying fixes it, still troubleshooting
+
 ## Features
 - **Dropdown panel (no typing needed)**: Admins can post a panel with a dropdown; users select Game or Community to open the form instantly.
 - **Slash commands**: `/suggest create` and `/suggest manage` for creation and admin management.
