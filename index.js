@@ -2,6 +2,64 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle, REST, Routes, StringSelectMenuBuilder } = require('discord.js');
 const sqlite3 = require('sqlite3').verbose();
 
+// Locale/Timezone configuration (from environment)
+const LOCALE = process.env.LOCALE || 'en-US';
+const TIMEZONE = process.env.TIMEZONE || 'UTC';
+
+function formatDateForNotes(date = new Date()) {
+  try {
+    return date.toLocaleString(LOCALE, {
+      timeZone: TIMEZONE,
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'short',
+    });
+  } catch (e) {
+    return date.toLocaleString('en-US', {
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'short',
+    });
+  }
+}
+
+function formatDateForSubmission(date = new Date()) {
+  try {
+    return date
+      .toLocaleString(LOCALE, {
+        timeZone: TIMEZONE,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      .replace(/,/g, '');
+  } catch (e) {
+    return date
+      .toLocaleString('en-US', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      .replace(/,/g, '');
+  }
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -131,6 +189,7 @@ function getEmojiResolvable(targetEmoji) {
 
 client.once('ready', async () => {
   console.log('Bot is ready!');
+  console.log(`Using locale/timezone: ${LOCALE} / ${TIMEZONE}`);
 
   // Fetch emojis if configured
   if (process.env.GUILD_ID && process.env.UPVOTE_EMOJI_NAME && process.env.DOWNVOTE_EMOJI_NAME) {
@@ -345,7 +404,7 @@ client.on('interactionCreate', async (interaction) => {
             newStatus = null;
             newNotes = null;
           } else {
-            const noteDate = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
+            const noteDate = formatDateForNotes();
             newNotes = `${noteDate}\n${interaction.user.username} response:\n${notes}`;
           }
 
@@ -442,7 +501,7 @@ client.on('interactionCreate', async (interaction) => {
         console.log(`Community fields: title=${title}, detail=${detail}`);
       }
 
-      const submission_date = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/,/g, '');
+      const submission_date = formatDateForSubmission();
       console.log(`Submission date: ${submission_date}`);
 
       console.log('Inserting into DB...');
