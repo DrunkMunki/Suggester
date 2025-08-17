@@ -250,9 +250,11 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.showModal(modal);
         console.timeEnd('buildAndShowModal');
       } else if (subcommand === 'manage') {
+        await interaction.deferReply({ flags: 64 });
+
         const adminRoles = process.env.ADMIN_ROLES ? process.env.ADMIN_ROLES.split(',') : [];
         if (!interaction.member.roles.cache.some(r => adminRoles.includes(r.id))) {
-          return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
+          return interaction.editReply({ content: 'You do not have permission to use this command.' });
         }
 
         const id = interaction.options.getInteger('id');
@@ -262,10 +264,10 @@ client.on('interactionCreate', async (interaction) => {
         db.get('SELECT * FROM suggestions WHERE id = ?', [id], async (err, row) => {
           if (err) {
             console.error(err);
-            return interaction.reply({ content: 'Error fetching suggestion.', ephemeral: true });
+            return interaction.editReply({ content: 'Error fetching suggestion.' });
           }
           if (!row) {
-            return interaction.reply({ content: 'Suggestion not found.', ephemeral: true });
+            return interaction.editReply({ content: 'Suggestion not found.' });
           }
 
           let newStatus = status;
@@ -274,14 +276,14 @@ client.on('interactionCreate', async (interaction) => {
             newStatus = null;
             newNotes = null;
           } else {
-            const noteDate = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
-            newNotes = `${interaction.user.username} response: • ${noteDate}\n${notes}`;
+            const noteDate = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
+            newNotes = `${noteDate}\n${interaction.user.username} response:\n${notes}`;
           }
 
           db.run('UPDATE suggestions SET status = ?, notes = ? WHERE id = ?', [newStatus, newNotes, row.id], async (updateErr) => {
             if (updateErr) {
               console.error(updateErr);
-              return interaction.reply({ content: 'Error updating suggestion.', ephemeral: true });
+              return interaction.editReply({ content: 'Error updating suggestion.' });
             }
 
             const channel = client.channels.cache.get(process.env.CHANNEL_ID);
@@ -302,7 +304,7 @@ client.on('interactionCreate', async (interaction) => {
               }
             }
 
-            interaction.reply({ content: 'Suggestion updated successfully.', ephemeral: true });
+            interaction.editReply({ content: 'Suggestion updated successfully.' });
           });
         });
       }
@@ -416,13 +418,13 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // Catch-all for unhandled interactions
-    if (!interaction.replied && !interaction.deferred) {
-      try {
-        await interaction.reply({ content: 'Interaction acknowledged, but no handler found.', ephemeral: true });
-      } catch (ackErr) {
-        console.error('Error acknowledging unhandled interaction:', ackErr.stack);
-      }
-    }
+    // if (!interaction.replied && !interaction.deferred) {
+    //   try {
+    //     await interaction.reply({ content: 'Interaction acknowledged, but no handler found.', ephemeral: true });
+    //   } catch (ackErr) {
+    //     console.error('Error acknowledging unhandled interaction:', ackErr.stack);
+    //   }
+    // }
   } catch (error) {
     console.error('Error handling interaction:', error.stack);
     if (!interaction.replied && !interaction.deferred) {
