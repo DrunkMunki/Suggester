@@ -1,119 +1,176 @@
 # Discord Suggestion Bot
 
-This is a Discord bot built with Node.js and Discord.js that allows users to submit suggestions via slash commands and modals. Suggestions are posted as embeds in a specified channel, where users can vote using reactions. Admins can manage suggestions by setting statuses and adding notes.
+A Discord bot (Node.js + discord.js v14) for collecting, displaying, and managing community suggestions. Users submit ideas via modals; suggestions are posted as embeds with voting. Admins can manage statuses and notes.
 
 ## Features
-- Slash command `/suggest create` with type (Game or Community) to open a modal form.
-- Conditional form fields based on suggestion type.
-- Posts formatted embeds to a specific channel with voting reactions (👍 and 👎).
-- Real-time vote counting and percentage updates in the embed.
-- Admin command `/suggest manage` to set status (under consideration, implemented, not happening, clear) and add notes.
-- Voting disabled when a status is set (except after clearing).
-- Uses SQLite for storing suggestions and votes (persistent).
-- Configurable via environment variables.
-- Docker support for easy deployment.
+- **Dropdown panel (no typing needed)**: Admins can post a panel with a dropdown; users select Game or Community to open the form instantly.
+- **Slash commands**: `/suggest create` and `/suggest manage` for creation and admin management.
+- **Dynamic modals**: Fields adapt based on suggestion type.
+- **Embeds + reactions**: Suggestions are posted with 👍/👎 reactions; votes and percentages update in real time.
+- **Voting lock on status**: When status is set (not clear), reactions are removed and voting is disabled.
+- **Configurable locale/timezone**: `LOCALE` and `TIMEZONE` control all displayed dates/times.
+- **Custom emojis**: Optional custom up/down emojis by name via guild config.
+- **SQLite storage**: Persistent local DB (simple, no external server).
+- **Docker support**: Build and run easily in containers.
 
 ## Prerequisites
 - Node.js v16+ (tested with v20).
-- A Discord bot token from the [Discord Developer Portal](https://discord.com/developers/applications). Enable necessary intents (Guilds, GuildMessages, GuildMessageReactions).
-- Invite the bot to your server with permissions: Send Messages, Embed Links, Add Reactions, Read Message History.
+- A Discord Application + Bot with token and required intents.
+- Bot permissions in your server: **Send Messages**, **Embed Links**, **Add Reactions**, **Read Message History**.
 
-## Installation
+## Create and Invite Your Discord Bot
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create an Application.
+2. Add a Bot (Bot tab), then copy the bot token for your `.env` as `DISCORD_TOKEN`.
+3. Under Bot settings, enable Privileged Gateway Intents:
+   - Presence Intent: optional
+   - Server Members Intent: optional
+   - Message Content Intent: optional
+   - Required intents for this bot: Guilds, Guild Messages, Guild Message Reactions (enabled by default at the Application level)
+4. Invite the bot to your server using an OAuth2 URL with scopes `bot` and `applications.commands`.
+   - Example template (replace `YOUR_CLIENT_ID`):
+     - [Invite the bot](https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot%20applications.commands&permissions=274877975616)
+     - The `permissions` value grants Send Messages, Embed Links, Add Reactions, and Read Message History.
 
-### Local Installation
-1. Clone the repository:
-   ```
+## Linux Setup (local)
+1. Clone and install:
+   ```bash
    git clone https://github.com/drunkmunki/suggester.git
    cd suggester
-   ```
-
-2. Install dependencies:
-   ```
    npm install
    ```
-
-3. Create a `.env` file in the root directory with the following variables:
-   ```
+2. Create `.env` in the project root:
+   ```env
    DISCORD_TOKEN=your_discord_bot_token
-   CHANNEL_ID=your_suggestion_channel_id  # e.g., 680337687676321793
-   ADMIN_ROLES=role_id1,role_id2  # Comma-separated Discord role IDs for admins
-   DB_PATH=suggestions.db  # Path to SQLite database file
+   CHANNEL_ID=your_suggestion_channel_id
+   ADMIN_ROLES=role_id1,role_id2
+   DB_PATH=suggestions.db
+   # Optional emoji customization (requires GUILD_ID)
+   GUILD_ID=your_guild_id
+   UPVOTE_EMOJI_NAME=upvote_emoji_name
+   DOWNVOTE_EMOJI_NAME=downvote_emoji_name
+   # Locale/Timezone config
+   LOCALE=en-US
+   TIMEZONE=UTC
    ```
-
-4. Run the bot:
-   ```
+3. Start the bot:
+   ```bash
    node index.js
    ```
+4. (Optional) Run as a systemd service:
+   ```ini
+   [Unit]
+   Description=Suggester Bot
+   After=network.target
 
-### Docker Installation
-1. Build the Docker image:
+   [Service]
+   WorkingDirectory=/path/to/suggester
+   ExecStart=/usr/bin/node index.js
+   Restart=always
+   Environment=NODE_ENV=production
+   EnvironmentFile=/path/to/suggester/.env
+
+   [Install]
+   WantedBy=multi-user.target
    ```
-   docker build -t suggestion-bot .
+   Then:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable suggester
+   sudo systemctl start suggester
    ```
 
-2. Run the container, passing environment variables:
-   ```
-   docker run -d \
-     --name suggestion-bot \
-     -e DISCORD_TOKEN=your_discord_bot_token \
-     -e CHANNEL_ID=your_suggestion_channel_id \
-     -e ADMIN_ROLES=role_id1,role_id2 \
-     -e DB_PATH=/app/suggestions.db \
-     -v /host/path/to/db:/app  # Optional: persist DB on host
-     suggestion-bot
-   ```
+## Docker Setup
+### Build image
+```bash
+docker build -t suggestion-bot .
+```
 
-   For Portainer: Create a new container from the image and set the env vars and volumes via the UI.
+### Run with docker run
+```bash
+docker run -d \
+  --name suggestion-bot \
+  -e DISCORD_TOKEN=your_discord_bot_token \
+  -e CHANNEL_ID=your_suggestion_channel_id \
+  -e ADMIN_ROLES=role_id1,role_id2 \
+  -e DB_PATH=/app/suggestions.db \
+  -e LOCALE=en-US \
+  -e TIMEZONE=UTC \
+  -e GUILD_ID=your_guild_id \  # optional
+  -e UPVOTE_EMOJI_NAME=upvote_emoji_name \  # optional
+  -e DOWNVOTE_EMOJI_NAME=downvote_emoji_name \  # optional
+  -v /host/path/to/db:/app \
+  suggestion-bot
+```
 
-### Ubuntu 23.10 Installation (Temporary Setup)
-If you're facing issues with Docker/Alpine, use this script to set up on Ubuntu 23.10 for testing:
+### Run with docker-compose
+```yaml
+services:
+  suggester:
+    image: suggestion-bot:latest
+    container_name: suggestion-bot
+    restart: unless-stopped
+    environment:
+      DISCORD_TOKEN: your_discord_bot_token
+      CHANNEL_ID: your_suggestion_channel_id
+      ADMIN_ROLES: role_id1,role_id2
+      DB_PATH: /app/suggestions.db
+      LOCALE: en-US
+      TIMEZONE: UTC
+      # GUILD_ID: your_guild_id
+      # UPVOTE_EMOJI_NAME: upvote_emoji_name
+      # DOWNVOTE_EMOJI_NAME: downvote_emoji_name
+    volumes:
+      - /host/path/to/db:/app
+```
 
-1. Ensure you have Ubuntu 23.10 installed (e.g., in a VM).
-2. Clone the repository:
-   ```
-   git clone https://github.com/drunkmunki/suggester.git
-   cd suggester
-   ```
-3. Make the script executable:
-   ```
-   chmod +x setup.sh
-   ```
-4. Run the script:
-   ```
-   ./setup.sh
-   ```
-5. The script will install everything and start the bot. Stop with Ctrl+C and restart as needed.
+For Portainer, create a container from the image and set env vars/volumes via the UI.
 
-## Configuration
-All configuration is done via environment variables in `.env` or Docker env:
-- `DISCORD_TOKEN`: Required. Your bot's token.
-- `CHANNEL_ID`: Required. The ID of the channel where suggestions are posted.
-- `ADMIN_ROLES`: Optional. Comma-separated role IDs that can use the manage command.
-- `DB_PATH`: Path to the SQLite DB file (defaults to `suggestions.db` in the working directory).
-- `GUILD_ID`: Optional. The ID of the guild (server) to fetch custom emojis from.
-- `UPVOTE_EMOJI_NAME`: Optional. Name of the custom upvote emoji (e.g., 'yes'). Requires GUILD_ID.
-- `DOWNVOTE_EMOJI_NAME`: Optional. Name of the custom downvote emoji (e.g., 'no'). Requires GUILD_ID.
+## Configuration (.env)
+- **DISCORD_TOKEN**: Required. Bot token from the Developer Portal.
+- **CHANNEL_ID**: Required. Channel ID where suggestions are posted.
+- **ADMIN_ROLES**: Optional. Comma-separated role IDs permitted to use admin commands (`/suggest manage`, `/suggest panel`).
+- **DB_PATH**: Optional. Path to SQLite DB file. Defaults to `suggestions.db` in the working directory.
+- **GUILD_ID**: Optional. Guild ID used to fetch custom emojis by name.
+- **UPVOTE_EMOJI_NAME**: Optional. Custom upvote emoji name. Requires `GUILD_ID`.
+- **DOWNVOTE_EMOJI_NAME**: Optional. Custom downvote emoji name. Requires `GUILD_ID`.
+- **LOCALE**: Optional. Locale for date formatting (e.g., `en-GB`, `de-DE`). Default `en-US`.
+- **TIMEZONE**: Optional. IANA timezone (e.g., `Europe/London`, `America/New_York`). Default `UTC`.
 
 The bot auto-creates the SQLite table on startup.
 
-## Usage
-1. In Discord, type `/suggest create type:game` or `/suggest create type:community` to open the modal.
-   - For Game: Fill Game Name, Map Name, Suggestion.
-   - For Community: Fill Title, Detail.
-2. Submit the modal – the suggestion posts as an embed with 👍/👎 reactions.
-3. Users vote by reacting; votes update in real-time (one vote per user, can't up and down simultaneously).
-4. Admins use `/suggest manage id:<suggestion_id> status:<status> notes:<optional_notes>` to update.
-   - Statuses: under consideration, implemented, not happening, clear.
-   - Clear resets status/notes and re-enables voting.
-5. When status is set (not clear), reactions are removed, and voting is disabled. Embed updates with final votes and opinion score.
+## Commands and UI
+- **/suggest panel** (admin-only):
+  - Posts a message with a dropdown to open suggestion forms without typing.
+  - Options:
+    - **Game Suggestion**: Opens the Game modal.
+    - **Community Suggestion**: Opens the Community modal.
+  - The dropdown resets after selection so users can pick the same option again later.
+
+- **/suggest create type:<game|community>**:
+  - Opens the corresponding modal via slash command.
+  - Game modal fields: **Game Name**, **Map/Server Name**, **Suggestion**, **Reason**.
+  - Community modal fields: **Suggestion Title**, **Suggestion in Detail**.
+
+- **/suggest manage id:<number> status:<under consideration|implemented|not happening|clear> [notes:<text>]** (admin-only):
+  - Sets the public status and optional notes for a suggestion.
+  - When a non-`clear` status is set: voting reactions are removed and voting is disabled; the embed adds status and comment.
+  - When `clear` is set: status/notes are removed and voting is re-enabled (reactions are restored if absent).
+  - The success confirmation is ephemeral and auto-clears after ~5 seconds.
+  - Admin notes are timestamped using your configured `LOCALE`/`TIMEZONE`.
+
+### Voting behavior
+- Users can vote with 👍 or 👎 (one active vote at a time; picking the other removes the first).
+- The embed tracks counts and percentages; when a status is set (not clear), votes are frozen for that suggestion.
+
+### Custom emojis
+- If `GUILD_ID` and emoji names are provided, the bot will use those custom emojis for voting.
 
 ## Database
-- Uses SQLite for simplicity (no external DB server needed).
-- Table: `suggestions` with fields for ID, user, type, details, status, notes, date, votes, message ID.
-- If you prefer MongoDB or MariaDB, modify the code in `index.js` to use those drivers.
+- SQLite database with table `suggestions` storing ID, user, type, details, status, notes, submission date, votes, and message ID.
+- To use another DB, adapt the queries in `index.js` accordingly.
 
 ## Contributing
-Feel free to fork and submit pull requests. For issues, open a GitHub issue.
+PRs are welcome. For issues or feature requests, open a GitHub issue.
 
 ## License
 MIT License
