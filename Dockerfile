@@ -1,14 +1,10 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
+ENV NODE_ENV=production
 WORKDIR /app
 
 COPY package*.json ./
-
-RUN for i in $(seq 1 5); do apk update && break || sleep 5; done \
-    && apk add --no-cache --virtual .build-deps python3 make g++ \
-    && npm install \
-    && apk del .build-deps
+RUN npm ci --omit=dev
 
 COPY . .
-
 CMD ["node", "index.js"]
