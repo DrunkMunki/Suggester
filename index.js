@@ -91,6 +91,10 @@ const db = new sqlite3.Database(process.env.DB_PATH, (err) => {
       downvotes INTEGER DEFAULT 0,
       message_id TEXT
     )`);
+    db.run(`CREATE TABLE IF NOT EXISTS panel_state (
+      channel_id TEXT PRIMARY KEY,
+      message_id TEXT
+    )`);
   }
 });
 
@@ -185,6 +189,72 @@ function isSameEmoji(reactionEmoji, targetEmoji) {
 
 function getEmojiResolvable(targetEmoji) {
   return targetEmoji && typeof targetEmoji === 'object' && targetEmoji.id ? targetEmoji.id : targetEmoji;
+}
+
+function createPanelRow() {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('suggest_type_select')
+    .setPlaceholder('Choose a suggestion type')
+    .addOptions(
+      {
+        label: 'Game Suggestion',
+        description: 'Suggest a game/map/server change',
+        value: 'game'
+      },
+      {
+        label: 'Community Suggestion',
+        description: 'Suggest a community improvement',
+        value: 'community'
+      }
+    );
+  return new ActionRowBuilder().addComponents(select);
+}
+
+async function refreshPanel(channel) {
+  if (!channel) return;
+  try {
+    await new Promise((resolve) => {
+      db.get('SELECT message_id FROM panel_state WHERE channel_id = ?', [channel.id], (err, row) => {
+        if (err) {
+          console.error('Error reading panel_state:', err);
+          return resolve();
+        }
+        (async () => {
+          if (row && row.message_id) {
+            try {
+              const oldMsg = await channel.messages.fetch(row.message_id);
+              await oldMsg.delete();
+            } catch (e) {
+              // ignore if cannot fetch/delete
+            }
+          }
+          const sent = await channel.send({
+            content: 'Submit your suggestion using the menu below.\nChoose the option below to open a form. No need to type any commands!',
+            components: [createPanelRow()]
+          });
+          db.run('UPDATE panel_state SET message_id = ? WHERE channel_id = ?', [sent.id, channel.id], function (updateErr) {
+            if (updateErr) {
+              console.error('Error updating panel_state:', updateErr);
+              return resolve();
+            }
+            if (this.changes === 0) {
+              db.run('INSERT INTO panel_state (channel_id, message_id) VALUES (?, ?)', [channel.id, sent.id], (insertErr) => {
+                if (insertErr) console.error('Error inserting panel_state:', insertErr);
+                resolve();
+              });
+            } else {
+              resolve();
+            }
+          });
+        })().catch((e) => {
+          console.error('Error refreshing panel:', e);
+          resolve();
+        });
+      });
+    });
+  } catch (e) {
+    console.error('Unexpected error in refreshPanel:', e);
+  }
 }
 
 client.once('ready', async () => {
@@ -480,28 +550,13 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
         }
 
-        const select = new StringSelectMenuBuilder()
-          .setCustomId('suggest_type_select')
-          .setPlaceholder('Choose a suggestion type')
-          .addOptions(
-            {
-              label: 'Game Suggestion',
-              description: 'Suggest a game/map/server change',
-              value: 'game'
-            },
-            {
-              label: 'Community Suggestion',
-              description: 'Suggest a community improvement',
-              value: 'community'
-            }
-          );
-
-        const row = new ActionRowBuilder().addComponents(select);
-
-        await interaction.reply({
-          content: 'Submit your suggestion using the menu below.\nChoose the option below to open a form. No need to type any commands!',
-          components: [row]
-        });
+        try {
+          await refreshPanel(interaction.channel);
+          await interaction.reply({ content: 'Suggestion panel refreshed and moved to the bottom.', ephemeral: true });
+        } catch (e) {
+          console.error('Error refreshing panel from command:', e);
+          await interaction.reply({ content: 'Failed to refresh the panel. Check bot permissions.', ephemeral: true });
+        }
       }
 
       console.timeEnd('commandProcessing');
@@ -611,6 +666,12 @@ client.on('interactionCreate', async (interaction) => {
             });
 
             interaction.editReply({ content: 'Your suggestion has been submitted!' });
+            // Keep the suggestion panel at the bottom by refreshing it
+            try {
+              await refreshPanel(channel);
+            } catch (panelErr) {
+              console.error('Error refreshing panel after submission:', panelErr);
+            }
           } catch (sendErr) {
             console.error('Error sending message or adding reactions:', sendErr.stack);
             interaction.editReply({ content: 'Error posting suggestion to channel. Check bot permissions and channel access.' });

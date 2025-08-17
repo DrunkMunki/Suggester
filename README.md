@@ -2,8 +2,11 @@
 
 A Discord bot (Node.js + discord.js v14) for collecting, displaying, and managing community suggestions. Users submit ideas via modals; suggestions are posted as embeds with voting. Admins can manage statuses and notes.
 
+## Known Issues
+When Submitting a form or running a command you may get timeout errors, re-trying fixes it, still troubleshooting
+
 ## Features
-- **Dropdown panel (no typing needed)**: Admins can post a panel with a dropdown; users select Game or Community to open the form instantly.
+- **Dropdown panel (no typing needed)**: Admins can post a panel with a dropdown; users select Game or Community to open the form instantly. The panel is automatically refreshed to stay at the bottom after each new suggestion, so users always see it without pinning.
 - **Slash commands**: `/suggest create` and `/suggest manage` for creation and admin management.
 - **Dynamic modals**: Fields adapt based on suggestion type.
 - **Embeds + reactions**: Suggestions are posted with 👍/👎 reactions; votes and percentages update in real time.
@@ -140,11 +143,12 @@ The bot auto-creates the SQLite table on startup.
 
 ## Commands and UI
 - **/suggest panel** (admin-only):
-  - Posts a message with a dropdown to open suggestion forms without typing.
-  - Options:
+  - Refreshes the panel in the current channel. If a previous panel exists, it is deleted and a fresh one is posted so it appears at the bottom.
+  - Options in the panel:
     - **Game Suggestion**: Opens the Game modal.
     - **Community Suggestion**: Opens the Community modal.
   - The dropdown resets after selection so users can pick the same option again later.
+  - The command replies ephemerally to confirm the refresh.
 
 - **/suggest create type:<game|community>**:
   - Opens the corresponding modal via slash command.
@@ -165,8 +169,15 @@ The bot auto-creates the SQLite table on startup.
 ### Custom emojis
 - If `GUILD_ID` and emoji names are provided, the bot will use those custom emojis for voting.
 
+### Panel behavior
+- The panel is kept at the bottom of the suggestions channel. After each successful suggestion submission, the bot deletes the previous panel (if any) and posts a fresh one so it remains visible.
+- You can also run `/suggest panel` at any time to manually refresh/move the panel to the bottom.
+- If no panel exists yet, running `/suggest panel` will create it; once created, it will be maintained automatically after submissions.
+
 ## Database
-- SQLite database with table `suggestions` storing ID, user, type, details, status, notes, submission date, votes, and message ID.
+- SQLite database with tables:
+  - `suggestions`: stores ID, user, type, details, status, notes, submission date, votes, and message ID.
+  - `panel_state`: stores the current panel `message_id` per `channel_id` to enable automatic refresh at the bottom.
 - To use another DB, adapt the queries in `index.js` accordingly.
 
 ## Contributing
