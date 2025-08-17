@@ -330,6 +330,39 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.showModal(modal).catch((modalErr) => {
         console.error('Error showing modal from select menu:', modalErr);
       });
+
+      // Reset the select menu state so the same option can be chosen again later
+      try {
+        const refreshedSelect = new StringSelectMenuBuilder()
+          .setCustomId('suggest_type_select')
+          .setPlaceholder('Choose a suggestion type')
+          .addOptions(
+            {
+              label: 'Game Suggestion',
+              description: 'Suggest a game/map/server change',
+              value: 'game'
+            },
+            {
+              label: 'Community Suggestion',
+              description: 'Suggest a community improvement',
+              value: 'community'
+            }
+          );
+        const refreshedRow = new ActionRowBuilder().addComponents(refreshedSelect);
+        if (interaction.message?.editable) {
+          await interaction.message.edit({ components: [refreshedRow] });
+        } else if (interaction.channel) {
+          // Fallback: refetch and edit the message
+          try {
+            const fetched = await interaction.channel.messages.fetch(interaction.message.id);
+            await fetched.edit({ components: [refreshedRow] });
+          } catch (e) {
+            console.error('Error refetching/editing select message:', e);
+          }
+        }
+      } catch (e) {
+        console.error('Error resetting select menu state:', e);
+      }
       return;
     }
 
